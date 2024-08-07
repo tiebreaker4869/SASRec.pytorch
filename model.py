@@ -104,15 +104,22 @@ class SASRec(torch.nn.Module):
 
         return pos_logits, neg_logits # pos_pred, neg_pred
 
-    def predict(self, user_ids, log_seqs, item_indices): # for inference
+    def predict(self, user_ids, log_seqs, item_indices,topk=20): # for inference
+        #(B, L, C)
         log_feats = self.log2feats(log_seqs) # user_ids hasn't been used yet
-
+        
+        #(B, C)
         final_feat = log_feats[:, -1, :] # only use last QKV classifier, a waste
-
+        
+        # (num_items, C)
         item_embs = self.item_emb(torch.LongTensor(item_indices).to(self.dev)) # (U, I, C)
-
+        
+        # (B, num_items)
         logits = item_embs.matmul(final_feat.unsqueeze(-1)).squeeze(-1)
 
         # preds = self.pos_sigmoid(logits) # rank same item list for different users
+        topk_indices = None
+        if topk > 0:
+            _, topk_indices = torch.topk(logits, topk, dim=-1, largest=True, sorted=True)
 
-        return logits # preds # (U, I)
+        return logits, topk_indices # preds # (U, I)

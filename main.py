@@ -28,6 +28,7 @@ parser.add_argument('--inference_only', default=False, type=str2bool)
 parser.add_argument('--state_dict_path', default=None, type=str)
 parser.add_argument('--num_users', default=-1, type=int)
 parser.add_argument('--num_items', default=-1, type=int)
+parser.add_argument('--save_topk', default=-1, type=int)
 
 args = parser.parse_args()
 if not os.path.isdir(args.dataset + '_' + args.train_dir):
