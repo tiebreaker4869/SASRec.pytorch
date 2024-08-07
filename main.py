@@ -26,6 +26,8 @@ parser.add_argument('--l2_emb', default=0.0, type=float)
 parser.add_argument('--device', default='cuda', type=str)
 parser.add_argument('--inference_only', default=False, type=str2bool)
 parser.add_argument('--state_dict_path', default=None, type=str)
+parser.add_argument('--num_users', default=-1, type=int)
+parser.add_argument('--num_items', default=-1, type=int)
 
 args = parser.parse_args()
 if not os.path.isdir(args.dataset + '_' + args.train_dir):
@@ -36,7 +38,7 @@ f.close()
 
 if __name__ == '__main__':
 
-    u2i_index, i2u_index = build_index(args.dataset)
+    u2i_index, i2u_index = build_index(args.dataset, {'num_users': args.num_users, 'num_items': args.num_items})
     
     # global dataset
     dataset = data_partition(args.dataset)
@@ -44,6 +46,7 @@ if __name__ == '__main__':
     [user_train, user_valid, user_test, usernum, itemnum] = dataset
     # num_batch = len(user_train) // args.batch_size # tail? + ((len(user_train) % args.batch_size) != 0)
     num_batch = (len(user_train) - 1) // args.batch_size + 1
+    print(f"number of batches is {num_batch}")
     cc = 0.0
     for u in user_train:
         cc += len(user_train[u])
@@ -53,7 +56,7 @@ if __name__ == '__main__':
     f.write('epoch (val_ndcg, val_hr) (test_ndcg, test_hr)\n')
     
     sampler = WarpSampler(user_train, usernum, itemnum, batch_size=args.batch_size, maxlen=args.maxlen, n_workers=3)
-    model = SASRec(usernum, itemnum, args).to(args.device) # no ReLU activation in original SASRec implementation?
+    model = SASRec(max(usernum, args.num_users), max(itemnum, args.num_items), args).to(args.device) # no ReLU activation in original SASRec implementation?
     
     for name, param in model.named_parameters():
         try:

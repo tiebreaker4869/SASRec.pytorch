@@ -5,13 +5,26 @@ import random
 import numpy as np
 from collections import defaultdict
 from multiprocessing import Process, Queue
+from typing import List, Tuple, Dict
 
-def build_index(dataset_name):
-
+def build_index(dataset_name: str, meta_info: Dict[str, int]=None) -> Tuple[List[List[int]], List[List[int]]]:
+    """
+    Build user to item and item to user relationship.
+    Args:
+        dataset_name: dataset name, assume the user id and item id start from 1
+        meta_info: a dict containing meta info such as num_users and num_items. Useful when finetuning from a checkpoint.
+    Returns:
+        u2i_index: user item relationship, specify the items each user interacted with.
+        i2u_index: item user relationship, specify the users each item was interacted by.
+    """
     ui_mat = np.loadtxt('data/%s.txt' % dataset_name, dtype=np.int32)
 
     n_users = ui_mat[:, 0].max()
     n_items = ui_mat[:, 1].max()
+    
+    if meta_info:
+        n_users = max(n_users, meta_info['num_users'])
+        n_items = max(n_items, meta_info['num_items'])
 
     u2i_index = [[] for _ in range(n_users + 1)]
     i2u_index = [[] for _ in range(n_items + 1)]
@@ -34,7 +47,9 @@ def sample_function(user_train, usernum, itemnum, batch_size, maxlen, result_que
     def sample(uid):
 
         # uid = np.random.randint(1, usernum + 1)
-        while len(user_train[uid]) <= 1: user = np.random.randint(1, usernum + 1)
+        # while len(user_train[uid]) <= 1: uid = np.random.randint(1, usernum + 1)
+        while uid not in user_train or len(user_train[uid]) < 1:
+            uid = random.choice(list(user_train.keys()))
 
         seq = np.zeros([maxlen], dtype=np.int32)
         pos = np.zeros([maxlen], dtype=np.int32)
@@ -139,7 +154,7 @@ def evaluate(model, dataset, args):
         users = range(1, usernum + 1)
     for u in users:
 
-        if len(train[u]) < 1 or len(test[u]) < 1: continue
+        if u not in train or len(train[u]) < 1 or u not in test or len(test[u]) < 1: continue
 
         seq = np.zeros([args.maxlen], dtype=np.int32)
         idx = args.maxlen - 1
@@ -186,7 +201,7 @@ def evaluate_valid(model, dataset, args):
     else:
         users = range(1, usernum + 1)
     for u in users:
-        if len(train[u]) < 1 or len(valid[u]) < 1: continue
+        if u not in train or len(train[u]) < 1 or u not in valid or len(valid[u]) < 1: continue
 
         seq = np.zeros([args.maxlen], dtype=np.int32)
         idx = args.maxlen - 1
