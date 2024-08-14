@@ -306,19 +306,21 @@ def evaluate(model, dataset, args, save_path='evaluation_results.json'):
             HT += 1
 
         # 保存每个用户的历史记录和推荐结果
-        results[u] = {
-            'sequence': seq.tolist(),
-            'topk_recommendations': [item_idx[idx] for idx in topk_indices[0].tolist()],
-            'true_item': test[u][0]
-        }
+        if args.save_topk > 0:
+            results[u] = {
+                'sequence': seq.tolist(),
+                'topk_recommendations': [item_idx[idx] for idx in topk_indices[0].tolist()],
+                'true_item': test[u][0]
+            }
 
         if valid_user % 100 == 0:
             print('.', end="")
             sys.stdout.flush()
-
-    # 将结果保存到文件中
-    with open(save_path, 'w') as f:
-        json.dump(results, f)
+    
+    if args.save_topk > 0: 
+        # 将结果保存到文件中
+        with open(save_path, 'w') as f:
+            json.dump(results, f)
 
     return NDCG / valid_user, HT / valid_user
 

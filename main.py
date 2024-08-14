@@ -29,6 +29,7 @@ parser.add_argument('--state_dict_path', default=None, type=str)
 parser.add_argument('--num_users', default=-1, type=int)
 parser.add_argument('--num_items', default=-1, type=int)
 parser.add_argument('--save_topk', default=-1, type=int)
+parser.add_argument('--fine_tune_embedding_only', default=False, type=str2bool)
 
 args = parser.parse_args()
 if not os.path.isdir(args.dataset + '_' + args.train_dir):
@@ -58,6 +59,11 @@ if __name__ == '__main__':
     
     sampler = WarpSampler(user_train, usernum, itemnum, batch_size=args.batch_size, maxlen=args.maxlen, n_workers=3)
     model = SASRec(max(usernum, args.num_users), max(itemnum, args.num_items), args).to(args.device) # no ReLU activation in original SASRec implementation?
+    
+    if args.fine_tune_embedding_only:
+        for name, param in model.named_parameters():
+            if 'item_emb' not in name:
+                param.requires_grad = False
     
     for name, param in model.named_parameters():
         try:
@@ -94,7 +100,14 @@ if __name__ == '__main__':
     # ce_criterion = torch.nn.CrossEntropyLoss()
     # https://github.com/NVIDIA/pix2pixHD/issues/9 how could an old bug appear again...
     bce_criterion = torch.nn.BCEWithLogitsLoss() # torch.nn.BCELoss()
-    adam_optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, betas=(0.9, 0.98))
+    # Set the optimizer to only update the parameters that require gradients
+    
+    if args.fine_tune_embedding_only:
+        optimizer_params = model.item_emb.parameters()
+    else:
+        optimizer_params = model.parameters()
+
+    adam_optimizer = torch.optim.Adam(optimizer_params, lr=args.lr, betas=(0.9, 0.98))
 
     best_val_ndcg, best_val_hr = 0.0, 0.0
     best_test_ndcg, best_test_hr = 0.0, 0.0
