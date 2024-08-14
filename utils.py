@@ -2,7 +2,7 @@ import sys
 import copy
 import torch
 import random
-import csv
+import json
 import numpy as np
 from collections import defaultdict
 from multiprocessing import Process, Queue
@@ -142,25 +142,139 @@ def data_partition(fname):
 
 # TODO: merge evaluate functions for test and val set
 # evaluate on test set
-def evaluate(model, dataset, args):
+# def evaluate(model, dataset, args):
+#     [train, valid, test, usernum, itemnum] = copy.deepcopy(dataset)
+
+#     NDCG = 0.0
+#     HT = 0.0
+#     valid_user = 0.0
+#     ### 初始化 topk dict ###
+#     topk_dict = {}
+#     ### 初始化 topk dict ###
+
+#     #if usernum>10000:
+#     #    users = random.sample(range(1, usernum + 1), 10000)
+#     #else:
+#     #    users = range(1, usernum + 1)
+#     users = range(1, usernum + 1)
+#     for u in users:
+
+#         if u not in train or len(train[u]) < 1 or u not in test or len(test[u]) < 1: continue
+
+#         seq = np.zeros([args.maxlen], dtype=np.int32)
+#         idx = args.maxlen - 1
+#         seq[idx] = valid[u][0]
+#         idx -= 1
+#         for i in reversed(train[u]):
+#             seq[idx] = i
+#             idx -= 1
+#             if idx == -1: break
+#         rated = set(train[u])
+#         rated.add(0)
+#         item_idx = [test[u][0]]
+#         for _ in range(100):
+#             t = np.random.randint(1, itemnum + 1)
+#             while t in rated: t = np.random.randint(1, itemnum + 1)
+#             item_idx.append(t)
+
+#         predictions, topk_indices = model.predict(*[np.array(l) for l in [[u], [seq], item_idx]], topk=args.save_topk)
+#         predictions = -predictions
+#         predictions = predictions[0] # - for 1st argsort DESC
+
+#         rank = predictions.argsort().argsort()[0].item()
+
+#         valid_user += 1
+
+#         if rank < 10:
+#             NDCG += 1 / np.log2(rank + 2)
+#             HT += 1
+
+#         ### 保存 top-k 推荐结果 ###
+#         topk_items = [item_idx[i] for i in topk_indices[0].cpu().numpy()]
+#         interaction_history = [i for i in train[u]]
+#         topk_dict[u] = (interaction_history, topk_items)
+#         ### 保存 top-k 推荐结果 ###
+        
+#         if valid_user % 100 == 0:
+#             print('.', end="")
+#             sys.stdout.flush()
+#     ### 保存 top-k 推荐结果到 CSV 文件 ###
+#     with open('topk_recommendations.csv', 'w', newline='') as csvfile:
+#         csvwriter = csv.writer(csvfile)
+#         csvwriter.writerow(['user_id', 'interaction_history', 'recommendations'])
+#         for user, (history, recommendations) in topk_dict.items():
+#             csvwriter.writerow([user, ' '.join(map(str, history)), ' '.join(map(str, recommendations))])
+#     ### 保存 top-k 推荐结果到 CSV 文件 ###
+
+#     return NDCG / valid_user, HT / valid_user
+
+# def evaluate(model, dataset, args):
+#     [train, valid, test, usernum, itemnum] = copy.deepcopy(dataset)
+
+#     NDCG = 0.0
+#     HT = 0.0
+#     valid_user = 0.0
+#     topk_dict = {}
+
+#     users = range(1, usernum + 1)
+#     for u in users:
+#         if u not in train or len(train[u]) < 1 or u not in test or len(test[u]) < 1:
+#             continue
+
+#         # Prepare sequence for prediction
+#         seq = np.zeros([args.maxlen], dtype=np.int32)
+#         idx = args.maxlen - 1
+#         seq[idx] = valid[u][0]
+#         idx -= 1
+#         for i in reversed(train[u]):
+#             seq[idx] = i
+#             idx -= 1
+#             if idx == -1:
+#                 break
+#         rated = set(train[u])
+#         rated.add(0)
+#         item_idx = [test[u][0]]
+#         for _ in range(100):
+#             t = np.random.randint(1, itemnum + 1)
+#             while t in rated:
+#                 t = np.random.randint(1, itemnum + 1)
+#             item_idx.append(t)
+
+#         # Model prediction
+#         predictions, topk_indices = model.predict(*[np.array(l) for l in [[u], [seq], item_idx]], topk=args.save_topk)
+#         predictions = -predictions
+#         predictions = predictions[0]
+#         rank = predictions.argsort().argsort()[0].item()
+
+#         valid_user += 1
+
+#         if rank < 10:
+#             NDCG += 1 / np.log2(rank + 2)
+#             HT += 1
+
+#         if valid_user % 100 == 0:
+#             print('.', end="")
+#             sys.stdout.flush()
+
+#     return NDCG / valid_user, HT / valid_user
+
+def evaluate(model, dataset, args, save_path='evaluation_results.json'):
     [train, valid, test, usernum, itemnum] = copy.deepcopy(dataset)
 
     NDCG = 0.0
     HT = 0.0
     valid_user = 0.0
-    ### 初始化 topk dict ###
     topk_dict = {}
-    ### 初始化 topk dict ###
 
-    #if usernum>10000:
-    #    users = random.sample(range(1, usernum + 1), 10000)
-    #else:
-    #    users = range(1, usernum + 1)
+    # 用于保存每个用户的历史记录和推荐结果
+    results = {}
+
     users = range(1, usernum + 1)
     for u in users:
+        if u not in train or len(train[u]) < 1 or u not in test or len(test[u]) < 1:
+            continue
 
-        if u not in train or len(train[u]) < 1 or u not in test or len(test[u]) < 1: continue
-
+        # Prepare sequence for prediction
         seq = np.zeros([args.maxlen], dtype=np.int32)
         idx = args.maxlen - 1
         seq[idx] = valid[u][0]
@@ -168,19 +282,21 @@ def evaluate(model, dataset, args):
         for i in reversed(train[u]):
             seq[idx] = i
             idx -= 1
-            if idx == -1: break
+            if idx == -1:
+                break
         rated = set(train[u])
         rated.add(0)
         item_idx = [test[u][0]]
         for _ in range(100):
             t = np.random.randint(1, itemnum + 1)
-            while t in rated: t = np.random.randint(1, itemnum + 1)
+            while t in rated:
+                t = np.random.randint(1, itemnum + 1)
             item_idx.append(t)
 
+        # Model prediction
         predictions, topk_indices = model.predict(*[np.array(l) for l in [[u], [seq], item_idx]], topk=args.save_topk)
         predictions = -predictions
-        predictions = predictions[0] # - for 1st argsort DESC
-
+        predictions = predictions[0]
         rank = predictions.argsort().argsort()[0].item()
 
         valid_user += 1
@@ -189,24 +305,23 @@ def evaluate(model, dataset, args):
             NDCG += 1 / np.log2(rank + 2)
             HT += 1
 
-        ### 保存 top-k 推荐结果 ###
-        topk_items = [item_idx[i] for i in topk_indices[0].cpu().numpy()]
-        interaction_history = [i for i in train[u]]
-        topk_dict[u] = (interaction_history, topk_items)
-        ### 保存 top-k 推荐结果 ###
-        
+        # 保存每个用户的历史记录和推荐结果
+        results[u] = {
+            'sequence': seq.tolist(),
+            'topk_recommendations': [item_idx[idx] for idx in topk_indices[0].tolist()],
+            'true_item': test[u][0]
+        }
+
         if valid_user % 100 == 0:
             print('.', end="")
             sys.stdout.flush()
-    ### 保存 top-k 推荐结果到 CSV 文件 ###
-    with open('topk_recommendations.csv', 'w', newline='') as csvfile:
-        csvwriter = csv.writer(csvfile)
-        csvwriter.writerow(['user_id', 'interaction_history', 'recommendations'])
-        for user, (history, recommendations) in topk_dict.items():
-            csvwriter.writerow([user, ' '.join(map(str, history)), ' '.join(map(str, recommendations))])
-    ### 保存 top-k 推荐结果到 CSV 文件 ###
+
+    # 将结果保存到文件中
+    with open(save_path, 'w') as f:
+        json.dump(results, f)
 
     return NDCG / valid_user, HT / valid_user
+
 
 
 # evaluate on val set
