@@ -3,7 +3,7 @@ python main.py --device=cuda --dataset=ml-1m --train_dir=default --state_dict_pa
 
 serendipity-finetune:
 
-python main.py --dataset=serendipity --train_dir=default --maxlen=200 --dropout_rate=0.2 --device=cuda  --state_dict_path='ml-1m_default/SASRec.epoch=50.lr=0.001.layer=2.head=1.hidden=50.maxlen=200.pth' --num_items=49174 --fine_tune_embedding_only=true --num_epochs=200
+python main.py --dataset=serendipity --train_dir=default --maxlen=200 --dropout_rate=0.2 --device=cuda  --state_dict_path='ml-1m_default/SASRec.epoch=50.lr=0.001.layer=2.head=1.hidden=50.maxlen=200.pth' --num_items=49174 --num_epochs=100
 
 inference after fine tune:
-python main.py --device=cuda --dataset=ml-1m --train_dir=default --state_dict_path='serendipity_default/SASRec.epoch=60.lr=0.001.layer=2.head=1.hidden=50.maxlen=200.pth' --inference_only=true --maxlen=200  --num_items=49174 --save_topk=20
+python main.py --device=cuda --dataset=ml-1m --train_dir=default --state_dict_path='serendipity_default/SASRec.epoch=100.lr=0.001.layer=2.head=1.hidden=50.maxlen=200.pth' --inference_only=true --maxlen=200  --num_items=49174 --save_topk=20
