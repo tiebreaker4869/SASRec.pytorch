@@ -123,6 +123,7 @@ if __name__ == "__main__":
         torch.save(item_emb_weights, "item_emb_weights.pth")
         t_test = evaluate(model, dataset, args)
         print("test (NDCG@10: %.4f, HR@10: %.4f)" % (t_test[0], t_test[1]))
+        infer_and_save(model, dataset, args)
 
     # ce_criterion = torch.nn.CrossEntropyLoss()
     # https://github.com/NVIDIA/pix2pixHD/issues/9 how could an old bug appear again...

@@ -5,6 +5,7 @@ import numpy as np
 from collections import defaultdict
 from multiprocessing import Process, Queue
 from typing import List, Tuple, Dict
+import json
 
 
 def build_index(
@@ -39,7 +40,7 @@ def build_index(
 
 
 # sampler for batch generation
-def random_neq(l: int, r: int, s: list[int]) -> int:
+def random_neq(l: int, r: int, s) -> int:
     t = np.random.randint(l, r)
     while t in s:
         t = np.random.randint(l, r)
@@ -53,7 +54,7 @@ def sample_function(
 
         # uid = np.random.randint(1, usernum + 1)
         # while len(user_train[uid]) <= 1: uid = np.random.randint(1, usernum + 1)
-        while uid not in user_train or len(user_train[uid]) <= 1:
+        while uid not in user_train or len(user_train[uid]) < 1:
             uid = random.choice(list(user_train.keys()))
 
         seq = np.zeros([maxlen], dtype=np.int32)
@@ -139,16 +140,16 @@ def data_partition(fname):
 
     for user in User:
         nfeedback = len(User[user])
-        if nfeedback < 3:
+        if nfeedback < 13:  # 10 for testset, 1 for valid set, 1 for training set
             user_train[user] = User[user]
             user_valid[user] = []
             user_test[user] = []
         else:
-            user_train[user] = User[user][:-2]
+            user_train[user] = User[user][:-11]
             user_valid[user] = []
-            user_valid[user].append(User[user][-2])
+            user_valid[user].append(User[user][-11])
             user_test[user] = []
-            user_test[user].append(User[user][-1])
+            user_test[user].extend(User[user][-10:])
     return [user_train, user_valid, user_test, usernum, itemnum]
 
 
@@ -177,8 +178,9 @@ def evaluate(model, dataset, args):
                 break
         rated = set(train[u])
         rated.add(0)
-        item_idx = [test[u][0]]
-        for _ in range(100):
+        # item_idx = [test[u][0]]
+        item_idx = test[u]
+        for _ in range(1000):
             t = np.random.randint(1, itemnum + 1)
             while t in rated:
                 t = np.random.randint(1, itemnum + 1)
@@ -190,13 +192,25 @@ def evaluate(model, dataset, args):
         )
         predictions = -predictions
         predictions = predictions[0]
-        rank = predictions.argsort().argsort()[0].item()
+        ranks = predictions.argsort().argsort()[0 : len(test[u])].cpu()
+
+        hit = False
+
+        idcg = sum([1.0 / np.log2(i + 2) for i in range(len(test[u]))])
+
+        for rank in ranks:
+            if rank < 10:
+                hit = True
+                NDCG += 1 / np.log2(rank + 2) / idcg
+
+        if hit:
+            HT += 1
 
         valid_user += 1
 
-        if rank < 10:
-            NDCG += 1 / np.log2(rank + 2)
-            HT += 1
+        # if rank < 10:
+        #     NDCG += 1 / np.log2(rank + 2)
+        #     HT += 1
 
         if valid_user % 100 == 0:
             print(".", end="")
@@ -255,3 +269,52 @@ def evaluate_valid(model, dataset, args):
             sys.stdout.flush()
 
     return NDCG / valid_user, HT / valid_user
+
+
+def infer_and_save(model, dataset, args):
+    print("Inferencing and saving results...")
+
+    [train, valid, test, usernum, itemnum] = copy.deepcopy(dataset)
+
+    users = range(1, usernum + 1)
+
+    all_result = []
+
+    for u in users:
+        if (
+            u not in train
+            or len(train[u]) < 1
+            or u not in test
+            or len(test[u]) < 1
+            or u not in valid
+            or len(valid[u]) < 1
+        ):
+            continue
+
+        seq = np.zeros([args.maxlen], dtype=np.int32)
+        idx = args.maxlen - 1
+        seq[idx] = valid[u][0]
+        idx -= 1
+        for i in reversed(train[u]):
+            seq[idx] = i
+            idx -= 1
+            if idx == -1:
+                break
+
+        item_idx = list(range(1, itemnum + 1))
+
+        _, topk_indices = model.predict(
+            *[np.array(l) for l in [[u], [seq], item_idx]], topk=args.save_topk
+        )
+
+        # save topk items
+        topk_items = [item_idx[i] for i in topk_indices[0]]
+
+        # save histories, topk items, and ground truth
+        all_result.append((train[u] + valid[u], topk_items, test[u]))
+
+    # save all results
+    with open("result.json", "w") as f:
+        json.dump(all_result, f)
+
+    print("Results saved to result.json")
