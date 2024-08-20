@@ -7,6 +7,20 @@ from multiprocessing import Process, Queue
 from typing import List, Tuple, Dict
 import json
 
+def build_pop_list(dataset_name: str) -> defaultdict:
+    """
+    Build item popularity list.
+    Args:
+        dataset_name: dataset name, assume the user id and item id start from 1
+    Returns:
+        pop_list: item popularity list, key is item id and value is the number of interactions.
+    """
+    ui_mat = np.loadtxt("data/%s.txt" % dataset_name, dtype=np.int32)
+    pop_list = defaultdict(int)
+    for ui_pair in ui_mat:
+        pop_list[ui_pair[1]] += 1
+    return pop_list
+
 
 def build_index(
     dataset_name: str, meta_info: Dict[str, int] = None
@@ -152,6 +166,72 @@ def data_partition(fname):
             user_test[user].extend(User[user][-10:])
     return [user_train, user_valid, user_test, usernum, itemnum]
 
+def evaluate_serendipity(model, dataset, args, pop_list):
+    
+    top_100_pop = sorted(pop_list.items(), key=lambda x: x[1], reverse=True)[:100]
+    
+    [train, valid, test, usernum, itemnum] = copy.deepcopy(dataset)
+    
+    hit = 0.0
+    ndcg = 0.0
+    
+    valid_user = 0.0
+    
+    users = range(1, usernum + 1)
+    
+    for user in users:
+        if user not in train or len(train[user]) < 1 or user not in test or len(test[user]) < 1:
+            continue
+        
+        seq = np.zeros([args.maxlen], dtype=np.int32)
+        idx = args.maxlen - 1
+        seq[idx] = valid[user][0]
+        idx -= 1
+        
+        for i in reversed(train[user]):
+            seq[idx] = i
+            idx -= 1
+            if idx == -1:
+                break
+        
+        rated = set(train[user])
+        rated.add(0)
+        
+        # find the diff of test set and top 100 popular items
+        test_set = set(test[user])
+        top_100_pop_set = set([item[0] for item in top_100_pop])
+        diff = test_set - top_100_pop_set
+        if len(diff) == 0:
+            continue
+        
+        item_idx = [random.choice(list(diff))]
+        
+        for _ in range(1000):
+            t = np.random.randint(1, itemnum + 1)
+            while t in rated:
+                t = np.random.randint(1, itemnum + 1)
+            item_idx.append(t)
+        
+        predictions, _ = model.predict(
+            *[np.array(l) for l in [[user], [seq], item_idx]], topk=args.save_topk
+        )
+        
+        predictions = -predictions
+        predictions = predictions[0]
+        rank = predictions.argsort().argsort()[0].item()
+        
+        valid_user += 1
+        
+        if rank < 10:
+            ndcg += 1 / np.log2(rank + 2)
+            hit += 1
+        
+        if valid_user % 100 == 0:
+            print(".", end="")
+            sys.stdout.flush()
+        
+    return ndcg / valid_user, hit / valid_user
+
 
 # TODO: merge evaluate functions for test and val set
 def evaluate(model, dataset, args):
@@ -162,6 +242,10 @@ def evaluate(model, dataset, args):
     valid_user = 0.0
 
     users = range(1, usernum + 1)
+    
+    # sample 10000 users for evaluation
+    users = random.sample(users, 10000)
+    
     for u in users:
         if u not in train or len(train[u]) < 1 or u not in test or len(test[u]) < 1:
             continue
@@ -179,7 +263,7 @@ def evaluate(model, dataset, args):
         rated = set(train[u])
         rated.add(0)
         # item_idx = [test[u][0]]
-        item_idx = test[u]
+        item_idx = [random.choice(test[u])]
         for _ in range(1000):
             t = np.random.randint(1, itemnum + 1)
             while t in rated:
@@ -192,25 +276,13 @@ def evaluate(model, dataset, args):
         )
         predictions = -predictions
         predictions = predictions[0]
-        ranks = predictions.argsort().argsort()[0 : len(test[u])].cpu()
-
-        hit = False
-
-        idcg = sum([1.0 / np.log2(i + 2) for i in range(len(test[u]))])
-
-        for rank in ranks:
-            if rank < 10:
-                hit = True
-                NDCG += 1 / np.log2(rank + 2) / idcg
-
-        if hit:
-            HT += 1
+        rank = predictions.argsort().argsort()[0].item()
 
         valid_user += 1
 
-        # if rank < 10:
-        #     NDCG += 1 / np.log2(rank + 2)
-        #     HT += 1
+        if rank < 10:
+            NDCG += 1 / np.log2(rank + 2)
+            HT += 1
 
         if valid_user % 100 == 0:
             print(".", end="")
@@ -245,7 +317,7 @@ def evaluate_valid(model, dataset, args):
         rated = set(train[u])
         rated.add(0)
         item_idx = [valid[u][0]]
-        for _ in range(100):
+        for _ in range(1000):
             t = np.random.randint(1, itemnum + 1)
             while t in rated:
                 t = np.random.randint(1, itemnum + 1)

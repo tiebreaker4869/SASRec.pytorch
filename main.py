@@ -32,6 +32,7 @@ parser.add_argument("--num_users", default=-1, type=int)
 parser.add_argument("--num_items", default=-1, type=int)
 parser.add_argument("--save_topk", default=-1, type=int)
 parser.add_argument("--fine_tune_embedding_only", default=False, type=str2bool)
+parser.add_argument("--early_stopping", default=20, type=int)
 
 args = parser.parse_args()
 if not os.path.isdir(args.dataset + "_" + args.train_dir):
@@ -52,6 +53,8 @@ if __name__ == "__main__":
     u2i_index, i2u_index = build_index(
         args.dataset, {"num_users": args.num_users, "num_items": args.num_items}
     )
+    
+    pop_list = build_pop_list(args.dataset)
 
     # global dataset
     dataset = data_partition(args.dataset)
@@ -66,7 +69,7 @@ if __name__ == "__main__":
     print("average sequence length: %.2f" % (cc / len(user_train)))
 
     f = open(os.path.join(args.dataset + "_" + args.train_dir, "log.txt"), "w")
-    f.write("epoch (val_ndcg, val_hr) (test_ndcg, test_hr)\n")
+    f.write("epoch (val_ndcg, val_hr) (test_ndcg, test_hr) (seren_ndcg, seren_hr)\n")
 
     sampler = WarpSampler(
         user_train,
@@ -123,6 +126,8 @@ if __name__ == "__main__":
         torch.save(item_emb_weights, "item_emb_weights.pth")
         t_test = evaluate(model, dataset, args)
         print("test (NDCG@10: %.4f, HR@10: %.4f)" % (t_test[0], t_test[1]))
+        seren_test = evaluate_serendipity(model, dataset, args, pop_list)
+        print("serendipity (NDCG@10: %.4f, HR@10: %.4f)" % (seren_test[0], seren_test[1]))
         infer_and_save(model, dataset, args)
 
     # ce_criterion = torch.nn.CrossEntropyLoss()
@@ -141,7 +146,12 @@ if __name__ == "__main__":
     best_test_ndcg, best_test_hr = 0.0, 0.0
     T = 0.0
     t0 = time.time()
+    last_best_epoch = epoch_start_idx
     for epoch in range(epoch_start_idx, args.num_epochs + 1):
+        # early stopping
+        if epoch - last_best_epoch > args.early_stopping:
+            break
+        
         if args.inference_only:
             break  # just to decrease identition
         for step in range(
@@ -173,21 +183,24 @@ if __name__ == "__main__":
             print("Evaluating", end="")
             t_test = evaluate(model, dataset, args)
             t_valid = evaluate_valid(model, dataset, args)
+            seren_test = evaluate_serendipity(model, dataset, args, pop_list)
             print(
                 "epoch:%d, time: %f(s), valid (NDCG@10: %.4f, HR@10: %.4f), test (NDCG@10: %.4f, HR@10: %.4f)"
                 % (epoch, T, t_valid[0], t_valid[1], t_test[0], t_test[1])
+            )
+            
+            print(
+                "serendipity (NDCG@10: %.4f, HR@10: %.4f)"
+                % (seren_test[0], seren_test[1])
             )
 
             if (
                 t_valid[0] > best_val_ndcg
                 or t_valid[1] > best_val_hr
-                or t_test[0] > best_test_ndcg
-                or t_test[1] > best_test_hr
             ):
+                last_best_epoch = epoch
                 best_val_ndcg = max(t_valid[0], best_val_ndcg)
                 best_val_hr = max(t_valid[1], best_val_hr)
-                best_test_ndcg = max(t_test[0], best_test_ndcg)
-                best_test_hr = max(t_test[1], best_test_hr)
                 folder = args.dataset + "_" + args.train_dir
                 fname = "SASRec.epoch={}.lr={}.layer={}.head={}.hidden={}.maxlen={}.pth"
                 fname = fname.format(
@@ -200,7 +213,7 @@ if __name__ == "__main__":
                 )
                 torch.save(model.state_dict(), os.path.join(folder, fname))
 
-            f.write(str(epoch) + " " + str(t_valid) + " " + str(t_test) + "\n")
+            f.write(str(epoch) + " " + str(t_valid) + " " + str(t_test) + str(seren_test) + "\n")
             f.flush()
             t0 = time.time()
             model.train()
