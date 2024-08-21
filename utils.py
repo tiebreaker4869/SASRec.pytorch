@@ -154,16 +154,16 @@ def data_partition(fname):
 
     for user in User:
         nfeedback = len(User[user])
-        if nfeedback < 13:  # 10 for testset, 1 for valid set, 1 for training set
+        if nfeedback < 3:  # 10 for testset, 1 for valid set, 1 for training set
             user_train[user] = User[user]
             user_valid[user] = []
             user_test[user] = []
         else:
-            user_train[user] = User[user][:-11]
+            user_train[user] = User[user][:-2]
             user_valid[user] = []
-            user_valid[user].append(User[user][-11])
+            user_valid[user].append(User[user][-2])
             user_test[user] = []
-            user_test[user].extend(User[user][-10:])
+            user_test[user].extend(User[user][-1:])
     return [user_train, user_valid, user_test, usernum, itemnum]
 
 def evaluate_serendipity(model, dataset, args, pop_list):
@@ -244,7 +244,8 @@ def evaluate(model, dataset, args):
     users = range(1, usernum + 1)
     
     # sample 10000 users for evaluation
-    users = random.sample(users, 10000)
+    if len(users) > 10000:
+        users = random.sample(users, 10000)
     
     for u in users:
         if u not in train or len(train[u]) < 1 or u not in test or len(test[u]) < 1:

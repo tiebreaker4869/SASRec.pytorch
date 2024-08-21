@@ -15,6 +15,7 @@ def str2bool(s):
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--dataset", required=True)
+parser.add_argument("--pop_list_dataset", required=True)
 parser.add_argument("--train_dir", required=True)
 parser.add_argument("--batch_size", default=128, type=int)
 parser.add_argument("--lr", default=0.001, type=float)
@@ -31,7 +32,7 @@ parser.add_argument("--state_dict_path", default=None, type=str)
 parser.add_argument("--num_users", default=-1, type=int)
 parser.add_argument("--num_items", default=-1, type=int)
 parser.add_argument("--save_topk", default=-1, type=int)
-parser.add_argument("--fine_tune_embedding_only", default=False, type=str2bool)
+parser.add_argument("--fine_tune_last_layer", default=False, type=str2bool)
 parser.add_argument("--early_stopping", default=20, type=int)
 
 args = parser.parse_args()
@@ -54,7 +55,7 @@ if __name__ == "__main__":
         args.dataset, {"num_users": args.num_users, "num_items": args.num_items}
     )
     
-    pop_list = build_pop_list(args.dataset)
+    pop_list = build_pop_list(args.pop_list_dataset)
 
     # global dataset
     dataset = data_partition(args.dataset)
@@ -82,11 +83,6 @@ if __name__ == "__main__":
     model = SASRec(max(usernum, args.num_users), max(itemnum, args.num_items), args).to(
         args.device
     )  # no ReLU activation in original SASRec implementation?
-
-    if args.fine_tune_embedding_only:
-        for name, param in model.named_parameters():
-            if "item_emb" not in name:
-                param.requires_grad = False
 
     for name, param in model.named_parameters():
         try:
@@ -128,20 +124,19 @@ if __name__ == "__main__":
         print("test (NDCG@10: %.4f, HR@10: %.4f)" % (t_test[0], t_test[1]))
         seren_test = evaluate_serendipity(model, dataset, args, pop_list)
         print("serendipity (NDCG@10: %.4f, HR@10: %.4f)" % (seren_test[0], seren_test[1]))
-        infer_and_save(model, dataset, args)
 
     # ce_criterion = torch.nn.CrossEntropyLoss()
     # https://github.com/NVIDIA/pix2pixHD/issues/9 how could an old bug appear again...
     bce_criterion = torch.nn.BCEWithLogitsLoss()  # torch.nn.BCELoss()
     # Set the optimizer to only update the parameters that require gradients
 
-    if args.fine_tune_embedding_only:
-        optimizer_params = model.item_emb.parameters()
-    else:
-        optimizer_params = model.parameters()
 
-    adam_optimizer = torch.optim.Adam(optimizer_params, lr=args.lr, betas=(0.9, 0.98))
+    optimizer_params = model.parameters()
 
+    optimizer = torch.optim.AdamW(optimizer_params, lr=args.lr, betas=(0.9, 0.98))
+    
+    # optimizer = torch.optim.SGD(optimizer_params, lr=args.lr, momentum=0.9, weight_decay=0.0001)
+    
     best_val_ndcg, best_val_hr = 0.0, 0.0
     best_test_ndcg, best_test_hr = 0.0, 0.0
     T = 0.0
@@ -164,14 +159,14 @@ if __name__ == "__main__":
                 pos_logits.shape, device=args.device
             ), torch.zeros(neg_logits.shape, device=args.device)
             # print("\neye ball check raw_logits:"); print(pos_logits); print(neg_logits) # check pos_logits > 0, neg_logits < 0
-            adam_optimizer.zero_grad()
+            optimizer.zero_grad()
             indices = np.where(pos != 0)
             loss = bce_criterion(pos_logits[indices], pos_labels[indices])
             loss += bce_criterion(neg_logits[indices], neg_labels[indices])
             for param in model.item_emb.parameters():
                 loss += args.l2_emb * torch.norm(param)
             loss.backward()
-            adam_optimizer.step()
+            optimizer.step()
             print(
                 "loss in epoch {} iteration {}: {}".format(epoch, step, loss.item())
             )  # expected 0.4~0.6 after init few epochs

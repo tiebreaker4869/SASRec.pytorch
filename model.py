@@ -69,7 +69,28 @@ class SASRec(torch.nn.Module):
 
             # self.pos_sigmoid = torch.nn.Sigmoid()
             # self.neg_sigmoid = torch.nn.Sigmoid()
-
+        if args.fine_tune_last_layer:
+            for param in self.item_emb.parameters():
+                param.requires_grad = False
+            
+            for param in self.pos_emb.parameters():
+                param.requires_grad = False
+            
+            for idx, param in enumerate(self.attention_layernorms.parameters()):
+                param.requires_grad = False
+            
+            for idx, param in enumerate(self.attention_layers.parameters()):
+                param.requires_grad = False
+            
+            for idx, param in enumerate(self.forward_layernorms.parameters()):
+                param.requires_grad = False
+            
+            for idx, param in enumerate(self.forward_layers.parameters()):
+                if idx == len(self.forward_layers) - 1:
+                    param.requires_grad = True
+                else:
+                    param.requires_grad = False
+            
     def log2feats(self, log_seqs):  # TODO: fp64 and int64 as default in python, trim?
         seqs = self.item_emb(torch.LongTensor(log_seqs).to(self.dev))
         seqs *= self.item_emb.embedding_dim**0.5
